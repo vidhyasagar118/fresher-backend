@@ -141,3 +141,20 @@ app.get("/home/image", async (req, res) => {
     res.status(500).json({ message: "Failed to fetch home image" });
   }
 });
+// ===== TOP 5 MOST VOTED STUDENTS (FROM VOTESECTION) =====
+app.get("/students/top", async (req, res) => {
+  if (!db) return res.status(500).json({ message: "DB not connected" });
+
+  try {
+    const topStudents = await db
+      .collection("votesection")   
+      .find()
+      .sort({ votes: -1 })       
+      .limit(3)
+      .toArray();
+
+    res.json(topStudents);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to fetch top students" });
+  }
+});
