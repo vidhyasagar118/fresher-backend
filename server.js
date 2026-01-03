@@ -2,6 +2,9 @@
 import express from "express";
 import { MongoClient } from "mongodb";
 import cors from "cors";
+import dotenv from "dotenv";
+
+dotenv.config(); // Load .env variables
 
 const app = express();
 app.use(cors());
@@ -10,8 +13,7 @@ app.use(express.json());
 /* ================= DB CONFIG ================= */
 
 const DB_NAME = "formdata";
-const url =
-  "mongodb+srv://abhishekh:rani181149@firstclauster.9csvrwh.mongodb.net/formdata?retryWrites=true&w=majority";
+const url = process.env.MONGO_URL;
 
 const client = new MongoClient(url);
 let db;
@@ -22,8 +24,9 @@ async function startServer() {
     db = client.db(DB_NAME);
     console.log("✅ MongoDB Atlas Connected");
 
-    app.listen(5000, () => {
-      console.log("🚀 Server running on port 5000");
+    const PORT = process.env.PORT || 5000;
+    app.listen(PORT, () => {
+      console.log(`🚀 Server running on port ${PORT}`);
     });
   } catch (err) {
     console.error("❌ MongoDB connection error:", err);
@@ -61,9 +64,7 @@ app.post("/api/auth/login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const user = await db
-      .collection("student")
-      .findOne({ email, pass: password });
+    const user = await db.collection("student").findOne({ email, pass: password });
 
     if (!user)
       return res.status(400).json({ message: "Invalid credentials" });
@@ -72,6 +73,8 @@ app.post("/api/auth/login", async (req, res) => {
       token: "dummy-token",
       email: user.email,
       name: user.name,
+      enrollmentnum: user.enrollmentnum || null,
+      Imgsrc: user.Imgsrc || "https://via.placeholder.com/100",
     });
   } catch (err) {
     res.status(500).json({ message: "Login failed" });
@@ -159,13 +162,12 @@ app.get("/home/image", async (req, res) => {
   }
 });
 
-
 /* ================= TOP VOTED STUDENTS ================= */
+
 app.get("/students/top", async (req, res) => {
   if (!db) return res.status(500).json({ message: "DB not connected" });
 
   try {
-    // Find students sorted by votes descending, limit to top 5
     const topStudents = await db
       .collection("votesection")
       .find()
@@ -176,27 +178,5 @@ app.get("/students/top", async (req, res) => {
     res.json(topStudents);
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch top students" });
-  }
-});
-app.post("/api/auth/login", async (req, res) => {
-  if (!db) return res.status(500).json({ message: "DB not connected" });
-
-  try {
-    const { email, password } = req.body;
-
-    const user = await db.collection("student").findOne({ email, pass: password });
-
-    if (!user)
-      return res.status(400).json({ message: "Invalid credentials" });
-
-    res.json({
-      token: "dummy-token",
-      email: user.email,
-      name: user.name,
-      enrollmentnum: user.enrollmentnum, // if you store it
-      Imgsrc: user.Imgsrc || "https://via.placeholder.com/100" // fallback image
-    });
-  } catch (err) {
-    res.status(500).json({ message: "Login failed" });
   }
 });
