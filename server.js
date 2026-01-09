@@ -127,30 +127,16 @@ app.get("/profecers", async (req, res) => {
   }
 });
 
-// ===== HOME IMAGE =====
-app.get("/home/image", async (req, res) => {
-  if (!db) return res.status(500).json({ message: "DB not connected" });
-
-  try {
-    const home = await db.collection("home").findOne({});
-    if (!home) return res.status(404).json({ message: "No image found" });
-
-    // Make sure imageUrl starts with /images/ if stored locally
-    res.json({ imageUrl: home.imageUrl || "/images/fresher.jpg" });
-  } catch {
-    res.status(500).json({ message: "Failed to fetch home image" });
-  }
-});
 // ===== TOP 5 MOST VOTED STUDENTS (FROM VOTESECTION) =====
 app.get("/students/top", async (req, res) => {
   if (!db) return res.status(500).json({ message: "DB not connected" });
 
   try {
     const topStudents = await db
-      .collection("votesection")   
+      .collection("votesection")   // ✅ SAME AS VOTESECTION
       .find()
-      .sort({ votes: -1 })       
-      .limit(3)
+      .sort({ votes: -1 })         // highest votes first
+      .limit(1)
       .toArray();
 
     res.json(topStudents);
