@@ -114,18 +114,24 @@ app.get("/vote/status/:email", async (req, res) => {
   const vote = await db.collection("votes").findOne({ email: req.params.email });
   res.json({ hasVoted: !!vote });
 });
+let profecerCache = null;   
 
-// ===== PROFECERS =====
 app.get("/profecers", async (req, res) => {
   if (!db) return res.status(500).json({ message: "DB not connected" });
 
   try {
-    const profecers = await db.collection("profecerinfo").find().toArray();
+    if (profecerCache) {
+      return res.json(profecerCache);  
+    }
+
+    const profecers = await db .collection("profecerinfo") .find({}, { projection: { name: 1, role: 1, imgsrc: 1 } }) .toArray();
+    profecerCache = profecers;
     res.json(profecers);
-  } catch {
+  } catch (err) {
     res.status(500).json({ message: "Failed to fetch profecers" });
   }
 });
+
 
 // ===== TOP 5 MOST VOTED STUDENTS (FROM VOTESECTION) =====
 app.get("/students/top", async (req, res) => {
