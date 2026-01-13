@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 dotenv.config();
 
+import bcrypt from "bcrypt";
 import express from "express";
 import { MongoClient } from "mongodb";
 import cors from "cors";
@@ -8,132 +9,177 @@ import path from "path";
 import { fileURLToPath } from "url";
 import nodemailer from "nodemailer";
 
-/* ================= APP ================= */
+/* ================= APP CONFIG ================= */
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 /* ================= MIDDLEWARE ================= */
-app.use(cors({
-  origin: [
-    "http://localhost:5173",  // Vite frontend
-    "http://localhost:3000",  // CRA (optional)
-    "https://fresher-frontend.onrender.com" // deployed frontend
-  ],
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-}));
+// CORS ko properly configure kiya gaya hai
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173",
+      "http://localhost:3000",
+      "https://fresher-frontend.onrender.com",
+    ],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true
+  })
+);
 
 app.use(express.json());
 
-/* ================= STATIC ================= */
+/* ================= STATIC FILES ================= */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 app.use("/images", express.static(path.join(__dirname, "images")));
 
-/* ================= DB ================= */
+/* ================= DB CONNECTION ================= */
 const DB_NAME = "formdata";
 const MONGO_URL = process.env.MONGO_URL;
-
 const client = new MongoClient(MONGO_URL);
 let db;
 
-/* ================= MAIL ================= */
+/* ================= MAIL SETUP ================= */
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
     user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS, // Gmail App Password (no spaces)
+    pass: process.env.EMAIL_PASS, // Yahan naya App Password use hoga
   },
+});
+
+// Mail server check karne ke liye
+transporter.verify((error, success) => {
+  if (error) console.log("❌ Mail Server Error:", error);
+  else console.log("✅ Mail Server Ready");
 });
 
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
-
-/* ================= AUTH ROUTES ================= */
-
-// 👉 SEND OTP
 app.post("/api/auth/send-otp", async (req, res) => {
+  console.log("1. Received OTP request for:", req.body.email);
   try {
-    if (!db) return res.status(500).json({ message: "DB not connected" });
+    if (!db) {
+      console.log("2. DB connection missing, trying to reconnect...");
+      await client.connect();
+      db = client.db(DB_NAME);
+    }
 
     const { email } = req.body;
-    if (!email) return res.status(400).json({ message: "Email required" });
-
     const otp = generateOTP();
+    console.log("3. Generated OTP:", otp);
 
+    // DB Operations
     await db.collection("otp").deleteMany({ email });
-    await db.collection("otp").insertOne({
-      email,
-      otp,
-      createdAt: new Date(),
-    });
+    await db.collection("otp").insertOne({ email, otp, createdAt: new Date() });
+    console.log("4. OTP saved in Database");
 
+    // Mail Sending
+    console.log("5. Attempting to send email via:", process.env.EMAIL_USER);
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
       to: email,
-      subject: "Your OTP for Signup",
-      text: `Your OTP is ${otp}. Valid for 5 minutes.`,
+      subject: "Your OTP",
+      text: `Your OTP is ${otp}`,
     });
 
-    console.log("✅ OTP sent:", otp);
+    console.log("6. Email sent successfully!");
     res.json({ message: "OTP sent" });
 
   } catch (err) {
-    console.error("❌ OTP ERROR:", err);
-    res.status(500).json({ message: err.message });
+    console.error("❌ CRITICAL ERROR IN SEND-OTP:", err.message);
+    res.status(500).json({ 
+      message: "Internal Server Error", 
+      error: err.message // Isse frontend par asli error dikhega
+    });
   }
 });
-
-// 👉 SIGNUP
 app.post("/api/auth/signup", async (req, res) => {
   try {
     const { name, email, password, otp } = req.body;
     if (!name || !email || !password || !otp)
-      return res.status(400).json({ message: "All fields required" });
+      return res.status(400).json({ message: "All fields are required" });
 
-    const otpData = await db.collection("otp").findOne({ email, otp });
+    const otpData = await db.collection("otp").findOne({ email, otp: otp.toString() });
+    
     if (!otpData) return res.status(400).json({ message: "Invalid OTP" });
 
-    if (Date.now() - otpData.createdAt > 5 * 60 * 1000)
-      return res.status(400).json({ message: "OTP expired" });
+    // Expiry Check (5 Minutes)
+    const diff = (Date.now() - new Date(otpData.createdAt).getTime()) / 1000 / 60;
+    if (diff > 5) return res.status(400).json({ message: "OTP expired" });
 
     const exists = await db.collection("student").findOne({ email });
     if (exists) return res.status(400).json({ message: "User already exists" });
 
+    const hashedPassword = await bcrypt.hash(password, 10);
+
     await db.collection("student").insertOne({
       name,
       email,
-      pass: password,
+      pass: hashedPassword,
+      createdAt: new Date()
     });
 
     await db.collection("otp").deleteMany({ email });
 
     res.status(201).json({ message: "Signup successful" });
-
   } catch (err) {
     console.error("❌ SIGNUP ERROR:", err);
     res.status(500).json({ message: "Signup failed" });
   }
 });
 
-// 👉 LOGIN
+// LOGIN
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { email, password } = req.body;
-    const user = await db.collection("student").findOne({ email, pass: password });
+    const user = await db.collection("student").findOne({ email });
+    
     if (!user) return res.status(400).json({ message: "Invalid credentials" });
 
+    const isMatch = await bcrypt.compare(password, user.pass);
+    if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
+
     res.json({
-      token: "dummy-token",
+      token: "dummy-token-" + Date.now(), // Real app mein JWT use karein
       email: user.email,
       name: user.name,
       Imgsrc: user.Imgsrc || "/images/fresher.jpg",
     });
-
   } catch (err) {
-    console.error("❌ LOGIN ERROR:", err);
     res.status(500).json({ message: "Login failed" });
+  }
+});
+
+/* ================= OTHER ROUTES ================= */
+
+app.get("/students", async (req, res) => {
+  try {
+    const students = await db.collection("votesection").find().toArray();
+    res.json(students);
+  } catch (err) {
+    res.status(500).json({ message: "Error fetching students" });
+  }
+});
+
+app.post("/vote", async (req, res) => {
+  try {
+    const { email, enrollmentnum } = req.body;
+    const voted = await db.collection("votes").findOne({ email });
+    if (voted) return res.status(400).json({ message: "Already voted" });
+
+    await db.collection("votes").insertOne({ email, enrollmentnum });
+    await db.collection("votesection").updateOne(
+      { enrollmentnum }, 
+      { $inc: { votes: 1 } }
+    );
+
+    res.json({ message: "Vote cast successfully" });
+  } catch (err) {
+    res.status(500).json({ message: "Vote failed" });
   }
 });
 
@@ -142,73 +188,15 @@ async function startServer() {
   try {
     await client.connect();
     db = client.db(DB_NAME);
-    console.log("✅ MongoDB Connected");
+    console.log("✅ MongoDB Connected Successfully");
 
     app.listen(PORT, () => {
-      console.log(`🚀 Server running on port ${PORT}`);
+      console.log(`🚀 Server running on: http://localhost:${PORT}`);
     });
-
   } catch (err) {
-    console.error("❌ Server start error:", err);
+    console.error("❌ DB CONNECTION ERROR:", err);
+    process.exit(1);
   }
 }
 
 startServer();
-
-// ================= OTHER ROUTES (UNCHANGED) =================
-
-app.get("/students", async (req, res) => {
-  if (!db) return res.status(500).json({ message: "DB not connected" });
-  const students = await db.collection("votesection").find().toArray();
-  res.json(students);
-});
-
-app.post("/vote", async (req, res) => {
-  if (!db) return res.status(500).json({ message: "DB not connected" });
-
-  const { email, enrollmentnum } = req.body;
-  const voted = await db.collection("votes").findOne({ email });
-  if (voted) return res.status(400).json({ message: "Already voted" });
-
-  await db.collection("votes").insertOne({ email, enrollmentnum });
-  await db.collection("votesection").updateOne(
-    { enrollmentnum },
-    { $inc: { votes: 1 } }
-  );
-
-  res.json({ message: "Vote successful" });
-});
-
-app.get("/vote/status/:email", async (req, res) => {
-  if (!db) return res.status(500).json({ message: "DB not connected" });
-  const vote = await db.collection("votes").findOne({ email: req.params.email });
-  res.json({ hasVoted: !!vote });
-});
-
-let profecerCache = null;
-app.get("/profecers", async (req, res) => {
-  if (!db) return res.status(500).json({ message: "DB not connected" });
-
-  if (profecerCache) return res.json(profecerCache);
-
-  const profecers = await db
-    .collection("profecerinfo")
-    .find({}, { projection: { name: 1, role: 1, imgsrc: 1 } })
-    .toArray();
-
-  profecerCache = profecers;
-  res.json(profecers);
-});
-
-app.get("/students/top", async (req, res) => {
-  if (!db) return res.status(500).json({ message: "DB not connected" });
-
-  const topStudents = await db
-    .collection("votesection")
-    .find()
-    .sort({ votes: -1 })
-    .limit(1)
-    .toArray();
-
-  res.json(topStudents);
-});
