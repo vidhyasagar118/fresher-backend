@@ -40,31 +40,28 @@ const DB_NAME = "formdata";
 const MONGO_URL = process.env.MONGO_URL;
 const client = new MongoClient(MONGO_URL);
 let db;
-
-/* ================= MAIL SETUP ================= */
 const transporter = nodemailer.createTransport({
   service: "gmail",
-  host: "smtp.gmail.com",
-  port: 587, // Change from 465 to 587
-  secure: false, // Must be false for port 587
   auth: {
     user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS, // Bina space wala 16-digit App Password
+    pass: process.env.EMAIL_PASS, // Naya wala: uohqyodjwyysgdub
   },
-  tls: {
-    // Ye line Render ke network issues ko bypass karne mein help karti hai
-    rejectUnauthorized: false
+  // Extra security settings for cloud hosting
+  pool: true, 
+  maxConnections: 1,
+  rateDelta: 20000,
+  rateLimit: 5,
+});
+
+// Verify connection during startup
+transporter.verify((error) => {
+  if (error) {
+    console.log("❌ Mail Server Error:", error.message);
+  } else {
+    console.log("✅ Mail Server is ready");
   }
 });
 
-// Server restart hone par connection check karega
-transporter.verify((error, success) => {
-  if (error) {
-    console.log("❌ Mail Server Error Detail:", error);
-  } else {
-    console.log("✅ Mail Server is ready to send OTP");
-  }
-});
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
