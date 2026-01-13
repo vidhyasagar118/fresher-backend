@@ -41,26 +41,28 @@ const MONGO_URL = process.env.MONGO_URL;
 const client = new MongoClient(MONGO_URL);
 let db;
 
-/* ================= MAIL ================= */
+/* ================= MAIL SETUP ================= */
 const transporter = nodemailer.createTransport({
+  service: "gmail",
   host: "smtp.gmail.com",
-  port: 587, // Port badal diya (465 ki jagah 587)
-  secure: false, // Port 587 ke liye false hona chahiye
+  port: 587, // Change from 465 to 587
+  secure: false, // Must be false for port 587
   auth: {
     user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
+    pass: process.env.EMAIL_PASS, // Bina space wala 16-digit App Password
   },
   tls: {
-    rejectUnauthorized: false // Self-signed certificate issues ko bypass karne ke liye
+    // Ye line Render ke network issues ko bypass karne mein help karti hai
+    rejectUnauthorized: false
   }
 });
 
-// Server startup pe check karne ke liye
+// Server restart hone par connection check karega
 transporter.verify((error, success) => {
   if (error) {
-    console.log("❌ Mail Configuration Error:", error);
+    console.log("❌ Mail Server Error Detail:", error);
   } else {
-    console.log("✅ Mail Server is ready to take our messages");
+    console.log("✅ Mail Server is ready to send OTP");
   }
 });
 function generateOTP() {
