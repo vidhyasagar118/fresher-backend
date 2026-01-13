@@ -1,3 +1,6 @@
+
+import dotenv from "dotenv";
+dotenv.config();
 import express from "express";
 import { MongoClient } from "mongodb";
 import cors from "cors";
@@ -6,9 +9,8 @@ import { fileURLToPath } from "url";
 import nodemailer from "nodemailer";
 
 const app = express();
-app.use(cors({
-  origin: ["http://localhost:3000", "https://your-frontend-domain.onrender.com"],
-}));
+app.use(cors());
+
 app.use(express.json());
 
 const __filename = fileURLToPath(import.meta.url);
@@ -17,8 +19,7 @@ app.use("/images", express.static(path.join(__dirname, "images")));
 
 // ================= DB =================
 const DB_NAME = "formdata";
-const MONGO_URL =
-  "mongodb+srv://abhishekh:rani181149@firstclauster.9csvrwh.mongodb.net/formdata?retryWrites=true&w=majority";
+const MONGO_URL = process.env.MONGO_URL;
 
 const client = new MongoClient(MONGO_URL);
 let db;
